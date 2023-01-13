@@ -72,7 +72,7 @@ func init() {
 	flag.StringVar(&config.Local, "local", "", "bind addr")
 	flag.StringVar(&config.Server, "server", "", `收件人<服务器名称/IP地址>:<端口>, 缺省: 收件人@后的主机名进行MX解析结果以及25端口, 常见smtp端口有25 587 465 2525`)
 	flag.StringVar(&config.ServerName, "servername", "", `指定收件服务器名称, 缺省: -server中的主机名`)
-	flag.StringVar(&config.TlsServerName, "tlsservername", "", `指定TLS认证时使用的服务器名称`)
+	flag.StringVar(&config.TlsServerName, "tlsservername", "", `指定TLS认证时使用的服务器名称, 缺省: ServerName`)
 	flag.BoolVar(&config.IPv6, "6", false, "强制使用IPv6")
 	flag.StringVar(&config.IPv6Zone, "zone", "", "IPv6 scoped addressing zone")
 	usage := flag.Usage
