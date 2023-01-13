@@ -80,7 +80,7 @@ func init() {
 		usage()
 		println()
 		println(`e.g.`)
-		println(" "+os.Args[0], `-tls -subject hello -body world -from root@localhost -to root@localhost`)
+		println(" "+os.Args[0], `-tls -subject hello -body world -from root@localhost -to root@localhost -authusr xxxx -authpwd xxxx`)
 	}
 	flag.Parse()
 
@@ -217,10 +217,6 @@ type cramMD5Auth struct {
 	username, secret string
 }
 
-// CRAMMD5Auth returns an Auth that implements the CRAM-MD5 authentication
-// mechanism as defined in RFC 2195.
-// The returned Auth uses the given username and secret to authenticate
-// to the server using the challenge-response mechanism.
 func CRAMMD5Auth(fuck bool, username, secret string) smtp.Auth {
 	return &cramMD5Auth{fuck, username, secret}
 }
@@ -263,7 +259,7 @@ func main() {
 		log.Fatal(e.Error())
 	}
 	defer conn.Close()
-	c, e := smtp.NewClient(conn, config.ServerName) // MX(Mail Exchanger): nslookup -querytype=mx qq.com
+	c, e := smtp.NewClient(conn, config.ServerName) // MX(Mail Exchanger): nslookup -querytype=mx xx.com
 	if e != nil {
 		log.Fatal(e.Error())
 	}
