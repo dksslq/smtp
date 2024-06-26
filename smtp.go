@@ -23,6 +23,7 @@ var config = &struct {
 	Headers       vari
 	Ins           bool
 	TLS           bool
+	STLS          bool
 	Authid        string
 	Authusr       string
 	Authpwd       string
@@ -59,12 +60,13 @@ func init() {
 	flag.StringVar(&config.Bodyfile, "bodyfile", "", "正文文件(连接在body后)")
 	flag.Var(&config.Headers, "header", "自定义头部")
 	flag.BoolVar(&config.Ins, "ins", false, "TLS InsecureSkipVerify")
-	flag.BoolVar(&config.TLS, "tls", false, "启用TLS")
+	flag.BoolVar(&config.TLS, "tls", false, "启用TLS传输")
+	flag.BoolVar(&config.STLS, "stls", false, "启用STARTTLS")
 	flag.StringVar(&config.Authid, "authid", "", "PlainAuth identity")
 	flag.StringVar(&config.Authusr, "authusr", "", "PlainAuth username")
 	flag.StringVar(&config.Authpwd, "authpwd", "", "PlainAuth password")
 	flag.StringVar(&config.Authcrammd5, "crammd5", "", "CRAMMD5Auth secret")
-	flag.BoolVar(&config.Fuck, "fuck", false, "允许未经TLS的认证")
+	flag.BoolVar(&config.Fuck, "fuck", false, "允许未经任何TLS的认证")
 	flag.StringVar(&config.Name, "name", "", "指定发件人名称, 缺省: 发件人@前的内容")
 	flag.StringVar(&config.From, "from", "", "发件人")
 	flag.StringVar(&config.Localhost, "localhost", "", `指定发件服务器名称, 缺省: 发件人@后的主机名`)
@@ -73,7 +75,7 @@ func init() {
 	flag.StringVar(&config.Server, "server", "", `收件人<服务器名称/IP地址>:<端口>, 缺省: 收件人@后的主机名进行MX解析结果以及25端口, 常见smtp端口有25 587 465 2525`)
 	flag.StringVar(&config.ServerName, "servername", "", `指定收件服务器名称, 缺省: -server中的主机名`)
 	flag.StringVar(&config.TlsServerName, "tlsservername", "", `指定TLS认证时使用的服务器名称, 缺省: ServerName`)
-	flag.BoolVar(&config.IPv6, "6", false, "强制使用IPv6")
+	flag.BoolVar(&config.IPv6, "6", false, "使用IPv6")
 	flag.StringVar(&config.IPv6Zone, "zone", "", "IPv6 scoped addressing zone")
 	usage := flag.Usage
 	flag.Usage = func() {
@@ -119,7 +121,7 @@ func init() {
 		if config.Server != "" {
 			if host, port, e := net.SplitHostPort(config.Server); e != nil {
 				log.Println(e.Error()+",", "use it as hostname")
-				log.Println("host specification only,", host)
+				log.Println("host specification only,", config.Server)
 				raw_host = config.Server
 				incomplete = true
 			} else {
@@ -148,19 +150,23 @@ func init() {
 				var name string
 				for i, v := range mx { // get pref
 					log.Println("MX record", i, "for", raw_host+":", v.Host, "pref", v.Pref)
-					if !(pref < uint32(v.Pref)) { // lol
+					if v.Host != "" && !(pref < uint32(v.Pref)) { // lol
 						pref = uint32(v.Pref)
 						name = v.Host
 					}
 				}
 
-				if name[len(name)-1] == '.' { // strip dot from tail
+				/*if len(name) > 0 && name[len(name)-1] == '.' { // strip dot from tail
 					name = name[:len(name)-1]
+				}*/
+
+				if len(name) > 0 {
+					log.Println("pref MX host:", name)
+					config.Server = name + ":" + service_or_port
+				} else {
+					log.Println("MX lookup failed: blank pref MX host")
+					os.Exit(1)
 				}
-
-				log.Println("pref MX host:", name)
-
-				config.Server = name + ":" + service_or_port
 			}
 		}
 	}
@@ -241,8 +247,9 @@ func (a *cramMD5Auth) Next(fromServer []byte, more bool) ([]byte, error) {
 func main() {
 	var e error
 	var laddr, raddr *net.TCPAddr
+	var conn net.Conn
 	if config.Local != "" {
-		laddr, e = net.ResolveTCPAddr(config.Network, config.Server)
+		laddr, e = net.ResolveTCPAddr(config.Network, config.Local)
 		if e != nil {
 			log.Fatal(e.Error())
 		}
@@ -254,9 +261,19 @@ func main() {
 
 	raddr.Zone = config.IPv6Zone
 
-	conn, e := net.DialTCP(config.Network, laddr, raddr)
+	conn, e = net.DialTCP(config.Network, laddr, raddr)
 	if e != nil {
 		log.Fatal(e.Error())
+	}
+	if config.TLS {
+		if config.TlsServerName != "" {
+			conn = tls.Client(conn, &tls.Config{ServerName: config.TlsServerName, InsecureSkipVerify: config.Ins})
+		} else {
+			conn = tls.Client(conn, &tls.Config{ServerName: config.ServerName, InsecureSkipVerify: config.Ins})
+		}
+		if e = conn.(*tls.Conn).Handshake(); e != nil {
+			log.Fatal(e.Error())
+		}
 	}
 	defer conn.Close()
 	c, e := smtp.NewClient(conn, config.ServerName) // MX(Mail Exchanger): nslookup -querytype=mx xx.com
@@ -272,19 +289,19 @@ func main() {
 		return
 	}
 
-	if config.TLS {
+	if config.STLS {
 		if ok, _ := c.Extension("STARTTLS"); ok {
 			if config.TlsServerName != "" {
 				e = c.StartTLS(&tls.Config{ServerName: config.TlsServerName, InsecureSkipVerify: config.Ins})
 			} else {
-				e = c.StartTLS(&tls.Config{ServerName: config.Server, InsecureSkipVerify: config.Ins})
+				e = c.StartTLS(&tls.Config{ServerName: config.ServerName, InsecureSkipVerify: config.Ins})
 			}
 			if e != nil {
 				log.Println(e.Error())
 				return
 			}
 		} else {
-			log.Println("服务器不支持TLS")
+			log.Println("服务器不支持STARTTLS")
 			return
 		}
 	}
